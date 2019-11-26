@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/git-lfs/git-lfs/errors"
 	"github.com/git-lfs/git-lfs/filepathfilter"
@@ -69,6 +70,35 @@ func ResolveSymlinks(path string) string {
 // RenameFileCopyPermissions moves srcfile to destfile, replacing destfile if
 // necessary and also copying the permissions of destfile if it already exists
 func RenameFileCopyPermissions(srcfile, destfile string) error {
+	lockname := destfile + ".lock"
+	timeoutCount := 0
+	for {
+		lockfile, err := os.OpenFile(lockname, os.O_WRONLY|os.O_CREATE, 0600)
+		if err != nil {
+			preinfo, preerr := os.Stat(destfile)
+			if err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			time.Sleep(1 * time.Second)
+			nowinfo, nowerr := os.Stat(destfile)
+			if err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			if preerr != nil || nowerr != nil || preinfo.Size() == nowinfo.Size() {
+				timeoutCount += 1
+				if timeoutCount >= 10 {
+					return fmt.Errorf("cannot get file lock for %s (%s) so timeout", destfile, lockname)
+				}
+			}
+		} else {
+			defer func() {
+				lockfile.Close()
+				os.Remove(lockname)
+			}()
+			break
+		}
+	}
+
 	info, err := os.Stat(destfile)
 	if os.IsNotExist(err) {
 		// no original file
