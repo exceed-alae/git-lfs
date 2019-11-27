@@ -57,3 +57,16 @@ func RobustOpen(name string) (*os.File, error) {
 		retry.LastErrorOnly(true),
 	)
 }
+
+func RobustCreate(name string) (*os.File, error) {
+	var result *os.File
+	return result, retry.Do(
+		func() error {
+			f, err := os.Create(name)
+			result = f
+			return err
+		},
+		retry.RetryIf(isEphemeralError),
+		retry.LastErrorOnly(true),
+	)
+}

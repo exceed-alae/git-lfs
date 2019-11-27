@@ -11,3 +11,7 @@ func RobustRename(oldpath, newpath string) error {
 func RobustOpen(name string) (*os.File, error) {
 	return os.Open(name)
 }
+
+func RobustCreate(name string) (*os.File, error) {
+	return os.Create(name)
+}
