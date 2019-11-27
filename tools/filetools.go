@@ -73,7 +73,7 @@ func RenameFileCopyPermissions(srcfile, destfile string) error {
 	lockname := destfile + ".lock"
 	timeoutCount := 0
 	for {
-		lockfile, err := os.OpenFile(lockname, os.O_WRONLY|os.O_CREATE, 0600)
+		lockfile, err := os.OpenFile(lockname, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {
 			preinfo, preerr := os.Stat(destfile)
 			if err != nil && !os.IsNotExist(err) {
@@ -84,10 +84,19 @@ func RenameFileCopyPermissions(srcfile, destfile string) error {
 			if err != nil && !os.IsNotExist(err) {
 				return err
 			}
-			// If destfile state is not changed then increment timeout count
 			if (preerr != nil && nowerr != nil) || (preerr == nil && nowerr == nil && preinfo.Size() == nowinfo.Size()) {
+				// If destfile state is not changed then increment timeout count
 				timeoutCount += 1
 				if timeoutCount >= 10 {
+					if preerr != nil && nowerr != nil {
+						// Remove lock file if lock file exists but no target file
+						err := os.Remove(lockname)
+						if err == nil || os.IsNotExist(err) {
+							// Retry for first step if removing is success or already vanished
+							timeoutCount = 0
+							continue
+						}
+					}
 					return fmt.Errorf("cannot get file lock for %s (%s) so timeout", destfile, lockname)
 				}
 			}
