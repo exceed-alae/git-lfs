@@ -67,6 +67,26 @@ func ResolveSymlinks(path string) string {
 	return path
 }
 
+// RobustMove for different partition/drive
+func RobustMove(oldpath, newpath string) error {
+	src, err := RobustOpen(oldpath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	dst, err := RobustCreate(newpath)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(dst, src)
+	dst.Close()
+	if err != nil {
+		os.Remove(newpath)
+		return err
+	}
+	return os.Remove(oldpath)
+}
+
 // RenameFileCopyPermissions moves srcfile to destfile, replacing destfile if
 // necessary and also copying the permissions of destfile if it already exists
 func RenameFileCopyPermissions(srcfile, destfile string) error {
@@ -121,7 +141,9 @@ func RenameFileCopyPermissions(srcfile, destfile string) error {
 	}
 
 	if err := RobustRename(srcfile, destfile); err != nil {
-		return fmt.Errorf("cannot replace %q with %q: %v", destfile, srcfile, err)
+		if err := RobustMove(srcfile, destfile); err != nil {
+			return fmt.Errorf("cannot replace %q with %q: %v", destfile, srcfile, err)
+		}
 	}
 	return nil
 }
