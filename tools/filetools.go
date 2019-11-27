@@ -84,7 +84,8 @@ func RenameFileCopyPermissions(srcfile, destfile string) error {
 			if err != nil && !os.IsNotExist(err) {
 				return err
 			}
-			if preerr != nil || nowerr != nil || preinfo.Size() == nowinfo.Size() {
+			// If destfile state is not changed then increment timeout count
+			if (preerr != nil && nowerr != nil) || (preerr == nil && nowerr == nil && preinfo.Size() == nowinfo.Size()) {
 				timeoutCount += 1
 				if timeoutCount >= 10 {
 					return fmt.Errorf("cannot get file lock for %s (%s) so timeout", destfile, lockname)
