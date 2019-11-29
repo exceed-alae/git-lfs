@@ -193,7 +193,7 @@ func New(env Environment, gitdir, workdir, lfsdir string, repoPerms os.FileMode)
 		lfsdir = "lfs"
 	}
 
-	if filepath.IsAbs(lfsdir) {
+	if filepath.IsAbs(lfsdir) || strings.HasPrefix(lfsdir, "//") {
 		fs.LFSStorageDir = lfsdir
 	} else {
 		fs.LFSStorageDir = filepath.Join(fs.GitStorageDir, lfsdir)
