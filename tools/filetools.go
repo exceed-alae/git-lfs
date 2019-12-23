@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/git-lfs/git-lfs/errors"
 	"github.com/git-lfs/git-lfs/filepathfilter"
@@ -66,9 +67,68 @@ func ResolveSymlinks(path string) string {
 	return path
 }
 
+// RobustMove for different partition/drive
+func RobustMove(oldpath, newpath string) error {
+	src, err := RobustOpen(oldpath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	dst, err := RobustCreate(newpath)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(dst, src)
+	dst.Close()
+	if err != nil {
+		os.Remove(newpath)
+		return err
+	}
+	return os.Remove(oldpath)
+}
+
 // RenameFileCopyPermissions moves srcfile to destfile, replacing destfile if
 // necessary and also copying the permissions of destfile if it already exists
 func RenameFileCopyPermissions(srcfile, destfile string) error {
+	lockname := destfile + ".lock"
+	timeoutCount := 0
+	for {
+		lockfile, err := os.OpenFile(lockname, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err != nil {
+			preinfo, preerr := os.Stat(destfile)
+			if err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			time.Sleep(1 * time.Second)
+			nowinfo, nowerr := os.Stat(destfile)
+			if err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			if (preerr != nil && nowerr != nil) || (preerr == nil && nowerr == nil && preinfo.Size() == nowinfo.Size()) {
+				// If destfile state is not changed then increment timeout count
+				timeoutCount += 1
+				if timeoutCount >= 10 {
+					if preerr != nil && nowerr != nil {
+						// Remove lock file if lock file exists but no target file
+						err := os.Remove(lockname)
+						if err == nil || os.IsNotExist(err) {
+							// Retry for first step if removing is success or already vanished
+							timeoutCount = 0
+							continue
+						}
+					}
+					return fmt.Errorf("cannot get file lock for %s (%s) so timeout", destfile, lockname)
+				}
+			}
+		} else {
+			defer func() {
+				lockfile.Close()
+				os.Remove(lockname)
+			}()
+			break
+		}
+	}
+
 	info, err := os.Stat(destfile)
 	if os.IsNotExist(err) {
 		// no original file
@@ -81,7 +141,9 @@ func RenameFileCopyPermissions(srcfile, destfile string) error {
 	}
 
 	if err := RobustRename(srcfile, destfile); err != nil {
-		return fmt.Errorf("cannot replace %q with %q: %v", destfile, srcfile, err)
+		if err := RobustMove(srcfile, destfile); err != nil {
+			return fmt.Errorf("cannot replace %q with %q: %v", destfile, srcfile, err)
+		}
 	}
 	return nil
 }
